@@ -33,6 +33,9 @@
     "php": ">=5.3.3",
     "guzzlehttp/guzzle": "^5.0"
   },
+  "conflict": {
+    "aeris/guzzle-http-mock": "*"
+  },
   "autoload": {
     "psr-4": {
       "Aeris\\GuzzleHttpMock\\": "src/",
