@@ -2,6 +2,8 @@
 
 A mock library for verifying requests made with the [Guzzle Http Client](http://guzzle.readthedocs.org/), and mocking responses.
 
+This is a fork of the [original version](https://github.com/aerisweather/GuzzleHttpMock) with some minor changes.
+
 - - -
 
 
@@ -40,7 +42,7 @@ A mock library for verifying requests made with the [Guzzle Http Client](http://
 You can install GuzzleHttpMock using composer:
 
 ```sh
-php composer.phar require --dev aeris/guzzle-http-mock
+php composer.phar require --dev systemhaus/guzzle-http-mock
 ```
 
 

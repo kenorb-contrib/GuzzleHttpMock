@@ -1,3 +1,7 @@
+# v1.2.0
+
+* MOD: Support newer Guzzle versions
+
 # v1.1.5
 
 * MOD: Add `role: Maintainer` to composer.json 
