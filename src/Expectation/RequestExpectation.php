@@ -94,6 +94,7 @@ class RequestExpectation {
 		if (self::isJson($request)) {
 			$this->withJsonContentType();
 		}
+		return $this;
 	}
 
 	/**
