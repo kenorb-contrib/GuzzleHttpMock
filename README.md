@@ -57,7 +57,7 @@ $httpMock = new \Aeris\GuzzleHttp\Mock();
 // Create a guzzle http client and attach the mock handler
 $guzzleClient = new \GuzzleHttp\Client([
 	'base_url' => 'http://www.example.com',
-	'handler' => $httpMock;
+	'handler' => $httpMock->getHandlerStackWithMiddleware();
 ]);
 
 // Setup a request expectation
