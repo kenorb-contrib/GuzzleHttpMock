@@ -304,6 +304,41 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 		$this->httpMock->verify();
 	}
 
+    /** @test */
+    public function shouldRespondWithDifferentMockResponseOnMultipleRequests() {
+        $this->httpMock
+            ->shouldReceiveRequest()
+            ->withMethod('GET')
+            ->withUrl('http://www.example.com/foo')
+            ->andRespondWithJson([ 'bar' => 'foo']);
+
+        $this->httpMock
+            ->shouldReceiveRequest()
+            ->withMethod('GET')
+            ->withUrl('http://www.example.com/bar')
+            ->andRespondWithJson([ 'foo' => 'bar']);
+
+        $this->httpMock
+            ->shouldReceiveRequest()
+            ->withMethod('POST')
+            ->withUrl('http://www.example.com/missing')
+            ->andRespondWith(new Response(200,[], 'interesting message'));
+
+        $response1 = $this->guzzleClient
+            ->get('http://www.example.com/foo');
+
+        $response2 = $this->guzzleClient
+            ->get('http://www.example.com/bar');
+
+        $response3 = $this->guzzleClient->post('http://www.example.com/missing');
+
+        $this->assertEquals([ 'bar' => 'foo'], json_decode((string)$response1->getBody(), true));
+        $this->assertEquals([ 'foo' => 'bar'], json_decode((string)$response2->getBody(), true));
+        $this->assertEquals('interesting message', (string)$response3->getBody());
+
+        $this->httpMock->verify();
+    }
+
 	/**
 	 * @expectedException \Aeris\GuzzleHttpMock\Exception\UnexpectedHttpRequestException
 	 * @test
@@ -796,5 +831,4 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->httpMock->verify();
 	}
-
 }
