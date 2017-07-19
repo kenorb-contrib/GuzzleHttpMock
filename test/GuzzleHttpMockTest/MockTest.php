@@ -1,15 +1,11 @@
 <?php
 
-
 namespace Aeris\GuzzleHttpMockTest;
 
-
 use GuzzleHttp\Client as GuzzleClient;
-use GuzzleHttp\Message\MessageFactory;
-use GuzzleHttp\Message\Response;
-use GuzzleHttp\Message\ResponseInterface;
-use GuzzleHttp\Stream\Stream;
-use Aeris\GuzzleHttpMock\Mock as GuzzleHttpMock;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
+use Aeris\GuzzleHttpMock\Mock;
 use Aeris\GuzzleHttpMock\Expect;
 
 class MockTest extends \PHPUnit_Framework_TestCase {
@@ -17,41 +13,34 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 	/** @var GuzzleClient */
 	protected $guzzleClient;
 
-	/** @var GuzzleHttpMock */
+	/** @var Mock */
 	protected $httpMock;
 
-	/** @var MessageFactory */
-	protected $messageFactory;
 
 	public function setUp() {
-		$this->messageFactory = new MessageFactory();
-		$this->guzzleClient = new GuzzleClient();
-		$this->httpMock = new GuzzleHttpMock();
+        $this->httpMock = new Mock();
 
-		$this->httpMock->attachToClient($this->guzzleClient);
+		$this->guzzleClient = new GuzzleClient(['handler' => $this->httpMock->getHandlerStackWithMiddleware()]);
 	}
 
 	/** @test */
 	public function shouldReturnAResponseForARequestObject() {
-		$mockResponse = $this->createResponse(
+		$mockResponse =
 			new Response(200,
 				['Content-Type' => 'application/json'],
-				Stream::factory(json_encode([
+				json_encode([
 					'hello' => 'world',
 					'howareyou' => 'today'
-				]))
-			));
+				])
+			);
 
-		$request = $this->guzzleClient->createRequest(
+		$request = new Request(
 			'PUT',
-			'http://example.com/foo',
-			[
-				'query' => ['faz' => 'baz'],
-				'body' => json_encode(['shakeyo' => 'body']),
-				'headers' => [
-					'Content-Type' => 'application/json'
-				]
-			]
+			'http://example.com/foo?faz=baz',
+            [
+                'Content-Type' => 'application/json'
+            ],
+            json_encode(['shakeyo' => 'body'])
 		);
 
 		$this->httpMock
@@ -73,13 +62,13 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 	/** @test */
 	public function shouldReturnAResponseForARequestWithConfiguration() {
-		$mockResponse = $this->createResponse(new Response(200,
+		$mockResponse = new Response(200,
 			['Content-Type' => 'application/json'],
-			Stream::factory(json_encode([
+			json_encode([
 				'hello' => 'world',
 				'howareyou' => 'today'
-			]))
-		));
+			])
+		);
 
 		$this->httpMock
 			->shouldReceiveRequest()
@@ -97,7 +86,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 		$actualResponse = $this->guzzleClient
 			->put('http://example.com/foo', [
 				'query' => ['faz' => 'baz'],
-				'body' => ['shakeyo' => 'body'],
+				'form_params' => ['shakeyo' => 'body'],
 			]);
 
 		$this->httpMock->verify();
@@ -106,13 +95,13 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 	/** @test */
 	public function shouldReturnAResponseForAJsonBodyParamsExpectation() {
-		$mockResponse = $this->createResponse(new Response(200,
+		$mockResponse = new Response(200,
 			['Content-Type' => 'application/json'],
-			Stream::factory(json_encode([
+			json_encode([
 				'hello' => 'world',
 				'howareyou' => 'today'
-			]))
-		));
+			])
+		);
 
 		$this->httpMock
 			->shouldReceiveRequest()
@@ -140,13 +129,13 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 	/** @test */
 	public function shouldRespondToMultipleRequestsWithTheSameResponse() {
-		$mockResponse = $this->createResponse(new Response(200,
+		$mockResponse = new Response(200,
 			['Content-Type' => 'application/json'],
-			Stream::factory(json_encode([
+			json_encode([
 				'hello' => 'world',
 				'howareyou' => 'today'
-			]))
-		));
+			])
+		);
 
 		$this->httpMock
 			->shouldReceiveRequest()
@@ -178,14 +167,14 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 		$actualResponse = $this->guzzleClient
 			->put('http://example.com/foo', [
 				'query' => ['faz' => 'baz'],
-				'body' => json_encode(['shakeyo' => 'body']),
+				'json' => ['shakeyo' => 'body'],
 				'headers' => ['Content-Type' => 'application/json']
 			]);
 
 		$actualResponse2 = $this->guzzleClient
 			->put('http://example.com/foo', [
 				'query' => ['faz' => 'baz'],
-				'body' => json_encode(['shakeyo' => 'hands in the air like you just don\'t care']),
+				'json' => ['shakeyo' => 'hands in the air like you just don\'t care'],
 				'headers' => ['Content-Type' => 'application/json']
 			]);
 
@@ -228,7 +217,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals([
 			'foo' => 'bar',
 			'faz' => ['baz', 'shnaz'],
-		], $response->json());
+		], json_decode((string)$response->getBody(), true));
 	}
 
 	/** @test */
@@ -249,7 +238,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals([
 			'foo' => 'bar',
 			'faz' => ['baz', 'shnaz'],
-		], $response->json());
+		], json_decode((string)$response->getBody(), true));
 		$this->assertEquals(234, $response->getStatusCode());
 	}
 
@@ -275,8 +264,8 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->httpMock->verify();
 
-		$this->assertEquals(['foo' => 'bar'], $responseA->json());
-		$this->assertEquals(['shazaam' => 'kabloom'], $responseB->json());
+		$this->assertEquals(['foo' => 'bar'], json_decode((string)$responseA->getBody(), true));
+		$this->assertEquals(['shazaam' => 'kabloom'], json_decode((string)$responseB->getBody(), true));
 	}
 
 	/** @test */
@@ -307,9 +296,10 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 		$responseC = $this->guzzleClient
 			->get('http://www.example.com/users');
 
-		$this->assertEquals(['foo' => 'bar'], $responseA->json());
-		$this->assertEquals(['foo' => 'bar'], $responseB->json());
-		$this->assertEquals(['shazaam' => 'bologna'], $responseC->json());
+		$this->assertEquals(['foo' => 'bar'], json_decode((string)$responseA->getBody(), true));
+		$this->assertEquals(['foo' => 'bar'], json_decode((string)$responseB->getBody(), true));
+		$this->assertEquals(['shazaam' => 'bologna'], json_decode((string)$responseC->getBody(), true));
+
 
 		$this->httpMock->verify();
 	}
@@ -490,7 +480,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => ['not' => 'what I expected']
+				'form_params' => ['not' => 'what I expected']
 			]);
 
 		$this->httpMock->verify();
@@ -506,7 +496,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => ['foo' => 'bar']
+				'form_params' => ['foo' => 'bar']
 			]);
 
 		$this->httpMock->verify();
@@ -524,7 +514,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => ['foo' => 'bar']
+				'form_params' => ['foo' => 'bar']
 			]);
 
 		$this->httpMock->verify();
@@ -545,7 +535,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => ['foo' => 'shablooey']
+				'form_params' => ['foo' => 'shablooey']
 			]);
 
 		$this->httpMock->verify();
@@ -560,7 +550,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => ['foo' => 'bar']
+				'form_params' => ['foo' => 'bar']
 			]);
 
 		$this->httpMock->verify();
@@ -576,7 +566,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => ['foo' => 'bar', 'faz' => 'baz']
+				'form_params' => ['foo' => 'bar', 'faz' => 'baz']
 			]);
 
 		$this->httpMock->verify();
@@ -595,7 +585,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => ['foo' => 'shablooey', 'faz' => 'baz']
+				'form_params' => ['foo' => 'shablooey', 'faz' => 'baz']
 			]);
 
 		$this->httpMock->verify();
@@ -614,7 +604,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => [
+				'form_params' => [
 					'foo' => 'bar',
 					'faz' => 'baz',
 				]
@@ -638,7 +628,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 
 		$this->guzzleClient
 			->get('http://www.example.com/foo', [
-				'body' => [
+				'json' => [
 					'faz'   => 'baz',
 					'foo'   => 'bar',
 					'nullB' => null,
@@ -676,7 +666,7 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 	public function shouldFailIfNoRequestIsConfigured() {
 		$this->guzzleClient
 			->get('http://www.example.com/shazlooey', [
-				'body' => ['not' => 'what I expected']
+				'form_params' => ['not' => 'what I expected']
 			]);
 
 		$this->httpMock->verify();
@@ -805,14 +795,6 @@ class MockTest extends \PHPUnit_Framework_TestCase {
 			->get('http://www.example.com/foo');
 
 		$this->httpMock->verify();
-	}
-
-	/**
-	 * @param ResponseInterface|string $response
-	 * @return \GuzzleHttp\Message\RequestInterface|ResponseInterface
-	 */
-	protected function createResponse($response) {
-		return $this->messageFactory->fromMessage($response);
 	}
 
 }

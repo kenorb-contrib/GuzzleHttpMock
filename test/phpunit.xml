@@ -13,7 +13,7 @@
          syntaxCheck="false">
     <testsuites>
         <testsuite name="GuzzleHttpMockTest">
-            <directory>../GuzzleHttpMockTest</directory>
+            <directory>./GuzzleHttpMockTest</directory>
         </testsuite>
     </testsuites>
 </phpunit>
