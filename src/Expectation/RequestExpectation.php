@@ -194,7 +194,7 @@ class RequestExpectation {
 
         if($body instanceof StreamInterface) {
             try {
-                $body = $body->getContents();
+                $body = (string)$body;
             } catch(\Exception $e) {
                 throw new FailedRequestExpectationException('the body stream resource was not readable', false, true);
             }
@@ -210,10 +210,10 @@ class RequestExpectation {
 
         if($request->getHeaderLine('Content-Type') && $request->getHeaderLine('Content-Type') === 'application/json') {
             try {
-                $data = json_decode((string)$body, true);
+                $data = \GuzzleHttp\json_decode((string)$body, true);
             }
             catch (\Exception $ex) {
-                throw new FailedRequestExpectationException('body is invalid json', false, true);
+                throw new FailedRequestExpectationException('body is invalid json: '.json_last_error_msg(), false, true);
             }
 
             return $data;
