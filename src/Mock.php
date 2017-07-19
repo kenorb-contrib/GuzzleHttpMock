@@ -9,6 +9,7 @@ use Aeris\GuzzleHttpMock\Exception\UnexpectedHttpRequestException;
 use Aeris\GuzzleHttpMock\Expectation\RequestExpectation;
 use Aeris\GuzzleHttpMock\Exception\Exception as HttpMockException;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Promise\FulfilledPromise;
 use Psr\Http\Message\RequestInterface;
 use GuzzleHttp\Psr7\Response;
 use Psr\Http\Message\ResponseInterface;
@@ -25,8 +26,14 @@ class Mock {
 	/** @var UnexpectedHttpRequestException[] */
 	protected $exceptions = [];
 
-	public static function createWithMiddleware() {
-	    return HandlerStack::create(new self());
+	/** @var HandlerStack */
+	protected $handlerStack = null;
+
+	public function getHandlerStackWithMiddleware() {
+	    if($this->handlerStack == null) {
+	        $this->handlerStack = HandlerStack::create($this);
+        }
+	    return $this->handlerStack;
     }
 
 	public function shouldReceiveRequest(RequestInterface &$request = null) {
@@ -67,10 +74,10 @@ class Mock {
             // If we threw the exception here,
             // it would be caught by Guzzle,
             // and wrapped into a RequestException
-            return \GuzzleHttp\Promise\promise_for(new Response(200));
+            return new FulfilledPromise(new Response(200));
         }
 
-        return \GuzzleHttp\Promise\promise_for($response);
+        return new FulfilledPromise($response);
     }
 
 	/**
@@ -79,9 +86,10 @@ class Mock {
 	 * @throws CompoundUnexpectedHttpRequestException
 	 */
 	private function makeRequest(RequestInterface $request, array $options) {
+	    $count = count($this->requestExpectations);
 		$state = array_reduce(
 			$this->requestExpectations,
-			function (array $state, Expectation\RequestExpectation $requestExpectation) use ($request, $options) {
+			function (array $state, Expectation\RequestExpectation $requestExpectation) use ($request, $options, $count) {
 				// We got a successful response -- we're good to go.
 				if (isset($state['response'])) {
 					return $state;

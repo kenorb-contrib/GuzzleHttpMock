@@ -58,7 +58,7 @@ class RequestExpectation {
 		// Check request against expectations
 		$errors = array_reduce($this->requestExpectations, function($errors, $expectation) use ($request, $options) {
 			try {
-				$expectation($request);
+				$expectation($request, $options);
 			}
 			catch (UnexpectedHttpRequestException $err) {
 				return array_merge($errors, [$err]);
@@ -146,7 +146,7 @@ class RequestExpectation {
 		$this->requestExpectations['contentType'] = new Expect\Predicate(function(RequestInterface $request) use ($contentType) {
 			$expectation = is_callable($contentType) ? $contentType : new Expect\Matches("#$contentType#", 'content type');
 
-			return $expectation($request->getHeader('Content-Type'));
+			return $expectation($request->getHeaderLine('Content-Type'));
 		}, 'content type expectation failed');
 
 		return $this;
@@ -175,22 +175,22 @@ class RequestExpectation {
      * @return $this
      */
 	public function withBodyParams($params) {
-		$this->requestExpectations['body'] = new Expect\Predicate(function(RequestInterface $request, $options) use ($params) {
+		$this->requestExpectations['body'] = new Expect\Predicate(function(RequestInterface $request) use ($params) {
 			$expectation = is_callable($params) ? $params : new Expect\ArrayEquals($params, 'body params');
 
-			$actualBodyParams = self::parseRequestBody($options);
+			$actualBodyParams = self::parseRequestBody($request);
 			return $expectation($actualBodyParams);
 		}, 'body params expectation failed');
 
 		return $this;
 	}
 
-	private static function parseRequestBody($options) {
-        if(!isset($options['body'])) {
+	private static function parseRequestBody(RequestInterface $request) {
+        if(!$request->getBody()) {
             return [];
         }
 
-        $body = $options['body'];
+        $body = $request->getBody();
 
         if($body instanceof StreamInterface) {
             try {
@@ -202,11 +202,13 @@ class RequestExpectation {
             throw new FailedRequestExpectationException('body is not a stream resource', false, true);
         }
 
-        if(isset($options['Content-Type']) && $options['Content-Type'] === 'application/x-www-form-urlencoded') {
-	        return parse_str($body);
+
+        if($request->getHeaderLine('Content-Type') && $request->getHeaderLine('Content-Type') === 'application/x-www-form-urlencoded') {
+            parse_str($body, $result);
+            return $result;
         }
 
-        if(isset($options['Content-Type']) && $options['Content-Type'] === 'application/json') {
+        if($request->getHeaderLine('Content-Type') && $request->getHeaderLine('Content-Type') === 'application/json') {
             try {
                 $data = json_decode((string)$body, true);
             }
@@ -295,6 +297,6 @@ class RequestExpectation {
 	}
 
 	public static function isJson(RequestInterface $request) {
-		return !!preg_match('#^application/json#', $request->getHeader('Content-Type'));
+		return !!preg_match('#^application/json#', $request->getHeaderLine('Content-Type'));
 	}
 }
