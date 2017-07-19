@@ -2,7 +2,7 @@
 
 A mock library for verifying requests made with the [Guzzle Http Client](http://guzzle.readthedocs.org/), and mocking responses.
 
-This is a fork of the [original version](https://github.com/aerisweather/GuzzleHttpMock) with some minor changes.
+This is a fork of the [original version](https://github.com/aerisweather/GuzzleHttpMock). This version was changed to support Guzzle 6 and did receive some other minor changes.
 
 - - -
 
@@ -51,14 +51,14 @@ php composer.phar require --dev systemhaus/guzzle-http-mock
 GuzzleHttpMock allows you to setup Http request expectations, and mock responses.
 
 ```php
-// Create a guzzle http client
-$guzzleClient = new \GuzzleHttp\Client([
-	'base_url' => 'http://www.example.com'
-]);
-
-// Create a mock object, and start listening to guzzle client requests
+// Create a mock object
 $httpMock = new \Aeris\GuzzleHttp\Mock();
-$httpMock->attachToClient($guzzleClient);
+
+// Create a guzzle http client and attach the mock handler
+$guzzleClient = new \GuzzleHttp\Client([
+	'base_url' => 'http://www.example.com',
+	'handler' => $httpMock;
+]);
 
 // Setup a request expectation
 $httpMock
@@ -69,13 +69,13 @@ $httpMock
     ->andRespondWithJson([ 'faz', 'baz' ], $statusCode = 200);
 
 // Make a matching request
-$response = $guzzleClient->get('/foo', ['foo' => 'bar']);
-$response->json() == ['faz' => 'baz'];  // true
+$response = $guzzleClient->get('/foo', ['json' => ['foo' => 'bar'] ]);
+json_decode((string) $response->getBody(), true) == ['faz' => 'baz'];  // true
 $response->getStatusCode() == 200;      // true
 $httpMock->verify();                    // all good.
 
 // Make an unexpected request
-$guzzleClient->post('/bar', ['faz' => 'baz']);;
+$guzzleClient->post('/bar', ['json' => ['faz' => 'baz'] ]);;
 $httpMock->verify();
 // UnexpectedHttpRequestException: Request does not match any expectation:
 // 	Request url does not match expected value. Actual: '/bar', Expected: '/foo'
@@ -84,7 +84,8 @@ $httpMock->verify();
 
 ### How does it work?
 
-When a GuzzleHttpMock object is attached to the Guzzle Http client, it will intercept all requests made by the client. Whenever a request is made, the mock checks the request against set expectations, and sends a response to matching requests.
+When a GuzzleHttpMock Handler is attached to the Guzzle Http client, it will intercept all requests made by the client. Whenever a request is made, the mock checks the request against set expectations, and sends a response to matching requests.
+If your client uses custom middleware you can attach it to the handler stack of the mock handler.
 
 Calling `$httpMock->verify()` checks that all expected requests have been made, and complains about any unexpected requests.
 
@@ -96,14 +97,14 @@ Calling `$httpMock->verify()` checks that all expected requests have been made, 
 To start intercepting Http requests, the GuzzleHttpMock must be attached to a GuzzleClient:
 
 ```php
-// Create a guzzle http client
-$guzzleClient = new \GuzzleHttp\Client([
-	'base_url' => 'http://www.example.com'
-]);
-
-// Create a mock object, and start listening to guzzle client requests
+// Create a mock object
 $httpMock = new \Aeris\GuzzleHttp\Mock();
-$httpMock->attachToClient($guzzleClient);
+
+// Create a guzzle http client and attach mock handler
+$guzzleClient = new \GuzzleHttp\Client([
+	'base_url' => 'http://www.example.com',
+	'handler' => $httpMock->getHandlerStackWithMiddleware()
+]);
 ```
 
 ### Creating Request Expectations
@@ -169,20 +170,19 @@ $httpMock
 
 #### Directly Setting an Expected Request
 
-In addition to specifying request expectations individually, you can also directly set a `\GuzzleHttp\Message\RequestInterface` object as an expectation.
+In addition to specifying request expectations individually, you can also directly set a `Psr\Http\Message\RequestInterface` object as an expectation.
 
 ```php
-$expectedRequest = $guzzleClient->createRequest([
+$expectedRequest = new Request(
 	'PUT',
-    'http://www.example.com/foo',
+    'http://www.example.com/foo?faz=baz',
     [
-		'query'   => ['faz' => 'baz'],
 		'body'    => json_encode(['shazaam' => 'kablooey']),
 		'headers' => [
 			'Content-Type' => 'application/json'
 		],
 	]
-]);
+);
 
 $httpClient->shouldReceiveRequest($expectedRequest);
 ```
@@ -237,7 +237,7 @@ The following methods are available for mocking responses:
 
 Method | Notes
 ------ | -----
-`andRespondWith($response:\GuzzleHttp\Message\ResponseInterface)` | See [Directly Setting a Mock Response](#directly-setting-a-mock-response)
+`andRespondWith($response:\Psr\Http\Message\ResponseInterface)` | See [Directly Setting a Mock Response](#directly-setting-a-mock-response)
 `andRespondWithContent($data:array, $statusCode:string)` | Sets the response body
 `andRespondWithJson($data:array, $statCode:String)` | Sets a JSON response body
 
@@ -247,16 +247,11 @@ Method | Notes
 You may mock a response directly using a response object:
 
 ```php
-$response = new \GuzzleHttp\Message\Response(
-    b200,
+$response = new \GuzzleHttp\Psr7\Response(
+    200,
     ['Content-Type' = 'application/json'],
-	\GuzzleHttp\Streams\Stream::factory(json_encode(['foo' => 'bar' ])
+	json_encode(['foo' => 'bar' ]
 );
-
-// This is necessary to normalize the response
-// in a way that Guzzle expects.
-$messageFactory = \GuzzleHttp\Message\MessageFactory();
-$response = $messageFactory->fromMessage($response);
 
 $httpMock
 	->shouldReceiveRequest()
@@ -292,11 +287,12 @@ class MyUnitTest extends \PHPUnit_Framework_TestCase {
 
     public function setUp() {
     	// Setup your guzzle client and mock
+    	$this->httpMock = new \Aeris\GuzzleHttpMock();
+                
     	$this->guzzleClient = new \GuzzleHttp\Client([
-			'base_url' => 'http://www.example.com'
+			'base_url' => 'http://www.example.com',
+			'handler' => $this->httpMock->getHandlerStackWithMiddleware();
 		]);
-        $this->httpMock = new \Aeris\GuzzleHttpMock();
-        $this->httpMock->attachToClient($this->guzzleClient);
    	}
 
     public function tearDown() {
