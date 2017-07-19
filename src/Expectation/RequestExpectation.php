@@ -10,14 +10,12 @@ use Aeris\GuzzleHttpMock\Exception\UnexpectedHttpRequestException;
 use Aeris\GuzzleHttpMock\Expect;
 use Aeris\GuzzleHttpMock\Exception\FailedRequestExpectationException;
 use Aeris\GuzzleHttpMock\Exception\InvalidRequestCountException;
-use GuzzleHttp\Message\MessageFactory;
-use GuzzleHttp\Message\Request;
-use GuzzleHttp\Message\RequestInterface;
-use GuzzleHttp\Message\ResponseInterface;
-use GuzzleHttp\Post\PostBody;
-use GuzzleHttp\Query;
-use GuzzleHttp\Stream\Stream;
-use GuzzleHttp\Stream\StreamInterface;
+use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
+use function GuzzleHttp\Psr7\stream_for;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 
 class RequestExpectation {
 
@@ -36,7 +34,7 @@ class RequestExpectation {
 
 	public function __construct(RequestInterface $request = null) {
 		$request = $request ?: new Request('GET', '/');
-		
+
 		$this->setExpectedRequest($request);
 		$this->mockResponse = $this->createResponse();
 	}
@@ -47,8 +45,8 @@ class RequestExpectation {
 	 * @throws FailedRequestExpectationException
 	 * @return ResponseInterface
 	 */
-	public function makeRequest(RequestInterface $request) {
-		$this->validateRequestCanBeMade($request);
+	public function makeRequest(RequestInterface $request, array $options) {
+		$this->validateRequestCanBeMade($request, $options);
 
 		$this->actualCallCount++;
 		$response = $this->mockResponse;
@@ -56,11 +54,11 @@ class RequestExpectation {
 		return $response;
 	}
 
-	protected function validateRequestCanBeMade(RequestInterface $request) {
+	protected function validateRequestCanBeMade(RequestInterface $request, $options) {
 		// Check request against expectations
-		$errors = array_reduce($this->requestExpectations, function($errors, $expectation) use ($request) {
+		$errors = array_reduce($this->requestExpectations, function($errors, $expectation) use ($request, $options) {
 			try {
-				$expectation($request);
+				$expectation($request, $options);
 			}
 			catch (UnexpectedHttpRequestException $err) {
 				return array_merge($errors, [$err]);
@@ -82,10 +80,11 @@ class RequestExpectation {
 	 * @param RequestInterface $request
 	 */
 	public function setExpectedRequest($request) {
+	    parse_str($request->getUri()->getQuery(), $query);
 		$this
-			->withUrl($request->getUrl())
+			->withUrl($request->getUri())
 			->withMethod($request->getMethod())
-			->withQuery($request->getQuery());
+            ->withQueryParams($query);
 
 		if ($request->getBody() !== null) {
 			$this->withBody($request->getBody());
@@ -104,7 +103,7 @@ class RequestExpectation {
 	public function withUrl($url) {
 		$this->requestExpectations['url'] = new Expect\Predicate(function(RequestInterface $request) use ($url) {
 			$expectation = is_callable($url) ? $url : new Expect\Equals(explode('?', $url)[0], 'url');
-			$actualUrl = explode('?', $request->getUrl())[0];
+			$actualUrl = explode('?', (string)$request->getUri())[0];
 
 			return $expectation($actualUrl);
 		}, 'URL expectation failed');
@@ -115,15 +114,11 @@ class RequestExpectation {
 	public function withMethod($method) {
 		$this->requestExpectations['method'] = new Expect\Predicate(function (RequestInterface $request) use ($method) {
 			$expectation = is_callable($method) ? $method : new Expect\Equals($method, 'http method');
-			
+
 			return $expectation($request->getMethod());
 		}, 'HTTP method expectation failed');
 
 		return $this;
-	}
-
-	public function withQuery(Query $query) {
-		return $this->withQueryParams($query->toArray());
 	}
 
 	/**
@@ -133,10 +128,13 @@ class RequestExpectation {
 	public function withQueryParams($queryParams) {
 		$this->requestExpectations['query'] = new Expect\Predicate(function(RequestInterface $request)  use ($queryParams) {
 			$expectation = is_callable($queryParams) ? $queryParams : new Expect\ArrayEquals($queryParams, 'query params');
-			
-			return $expectation($request->getQuery()->toArray());
+
+			// The client library of guzzle automatically appends the query params to the uri before
+            // invoking the middleware stack
+            parse_str($request->getUri()->getQuery(), $query);
+			return $expectation($query);
 		}, 'query params expectation failed');
-		
+
 		return $this;
 	}
 
@@ -147,10 +145,10 @@ class RequestExpectation {
 	public function withContentType($contentType) {
 		$this->requestExpectations['contentType'] = new Expect\Predicate(function(RequestInterface $request) use ($contentType) {
 			$expectation = is_callable($contentType) ? $contentType : new Expect\Matches("#$contentType#", 'content type');
-			
-			return $expectation($request->getHeader('Content-Type'));
+
+			return $expectation($request->getHeaderLine('Content-Type'));
 		}, 'content type expectation failed');
-		
+
 		return $this;
 	}
 
@@ -165,37 +163,63 @@ class RequestExpectation {
 	public function withBody($stream) {
 		$this->requestExpectations['body'] = new Expect\Predicate(function(RequestInterface $request) use ($stream) {
 			$expectation = is_callable($stream) ? $stream : new Expect\Equals((string)$stream, 'body content');
-			
+
 			return $expectation((string)$request->getBody());
 		}, 'body expectation failed');
 
 		return $this;
 	}
 
+    /**
+     * @param callable|StreamInterface $stream
+     * @return $this
+     */
 	public function withBodyParams($params) {
 		$this->requestExpectations['body'] = new Expect\Predicate(function(RequestInterface $request) use ($params) {
 			$expectation = is_callable($params) ? $params : new Expect\ArrayEquals($params, 'body params');
 
-			$actualBodyParams = self::parseRequestBody($request->getBody());
+			$actualBodyParams = self::parseRequestBody($request);
 			return $expectation($actualBodyParams);
 		}, 'body params expectation failed');
 
 		return $this;
 	}
 
-	private static function parseRequestBody($body) {
-		if (!$body) { return []; }
-		
-		if ($body instanceof PostBody) {
-			return $body->getFields();
-		}
-		try {
-			$data = json_decode((string)$body, true);
-		}
-		catch (\Exception $ex) {
-			throw new FailedRequestExpectationException('body is valid json', false, true);
-		}
-		return $data;
+	private static function parseRequestBody(RequestInterface $request) {
+        if(!$request->getBody()) {
+            return [];
+        }
+
+        $body = $request->getBody();
+
+        if($body instanceof StreamInterface) {
+            try {
+                $body = (string)$body;
+            } catch(\Exception $e) {
+                throw new FailedRequestExpectationException('the body stream resource was not readable', false, true);
+            }
+        } else {
+            throw new FailedRequestExpectationException('body is not a stream resource', false, true);
+        }
+
+
+        if($request->getHeaderLine('Content-Type') && $request->getHeaderLine('Content-Type') === 'application/x-www-form-urlencoded') {
+            parse_str($body, $result);
+            return $result;
+        }
+
+        if($request->getHeaderLine('Content-Type') && $request->getHeaderLine('Content-Type') === 'application/json') {
+            try {
+                $data = \GuzzleHttp\json_decode((string)$body, true);
+            }
+            catch (\Exception $ex) {
+                throw new FailedRequestExpectationException('body is invalid json: '.json_last_error_msg(), false, true);
+            }
+
+            return $data;
+        }
+
+        throw new FailedRequestExpectationException('body is a raw stream', false, true);
 	}
 
 	public function withJsonBodyParams(array $params) {
@@ -218,7 +242,7 @@ class RequestExpectation {
 
 	public function zeroOrMoreTimes() {
 		$this->expectedCallCount = INF;
-		
+
 		return $this;
 	}
 
@@ -235,7 +259,7 @@ class RequestExpectation {
 
 		$stream = $this->createStream($data, $encoder);
 
-		$this->mockResponse->setBody($stream);
+		$this->mockResponse = $this->mockResponse->withBody($stream);
 
 		return $this;
 	}
@@ -245,14 +269,13 @@ class RequestExpectation {
 	}
 
 	public function andRespondWithCode($code) {
-		$this->mockResponse->setStatusCode($code);
+		$this->mockResponse = $this->mockResponse->withStatus($code);
 
 		return $this;
 	}
 
 	private function createResponse($code = 200) {
-		$factory = new MessageFactory();
-		return $factory->createResponse($code);
+		return new Response($code);
 	}
 
 	protected function createStream(array $data, $encoder = null) {
@@ -260,20 +283,20 @@ class RequestExpectation {
 			$encoder = Encoder::HttpQuery();
 		}
 
-		return Stream::factory($encoder($data));
+		return stream_for($encoder($data));
 	}
 
 	public function verify() {
 		if ($this->expectedCallCount === INF) {
 			return;
 		}
-		
+
 		if ($this->actualCallCount !== $this->expectedCallCount) {
 			throw new InvalidRequestCountException($this->actualCallCount, $this->expectedCallCount);
 		}
 	}
 
 	public static function isJson(RequestInterface $request) {
-		return !!preg_match('#^application/json#', $request->getHeader('Content-Type'));
+		return !!preg_match('#^application/json#', $request->getHeaderLine('Content-Type'));
 	}
 }

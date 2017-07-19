@@ -23,8 +23,8 @@ class Predicate {
 		$this->msg = $msg ?: 'Failed to verify custom expectation.';
 	}
 
-	public function __invoke($actual) {
-		$isPassing = call_user_func($this->predicateFn, $actual);
+	public function __invoke($actual, $actual2 = null) {
+		$isPassing = call_user_func($this->predicateFn, $actual, $actual2);
 		
 		if (!$isPassing) {
 			throw new UnexpectedHttpRequestException($this->msg);
