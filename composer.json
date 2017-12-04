@@ -30,7 +30,7 @@
   "minimum-stability": "dev",
   "require": {
     "php": ">=5.3.3",
-    "guzzlehttp/guzzle": "~5.3@stable"
+    "guzzlehttp/guzzle": "^5.0"
   },
   "conflict": {
     "aeris/guzzle-http-mock": "*"
