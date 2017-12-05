@@ -1,5 +1,5 @@
 {
-  "name": "kenorb-contrib/GuzzleHttpMock",
+  "name": "National-Theatre/GuzzleHttpMock",
   "description": "A mock library for verifying requests made with the Guzzle Http Client, and mocking responses.",
   "keywords": [
     "testing",
